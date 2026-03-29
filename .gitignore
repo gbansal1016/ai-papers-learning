@@ -28,6 +28,12 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
 # Data files (if too large)
 *.pkl
 *.h5
