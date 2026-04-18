@@ -1,0 +1,20 @@
+# Tree of Thoughts Research - Phase-based Deep Dive
+# Install with: pip install -r requirements.txt
+
+# Core
+jupyter>=1.0.0
+jupyterlab>=3.0.0
+
+# Data science
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+scikit-learn>=1.3.0
+
+# LLM Integration (for Phase 3+)
+openai>=1.3.0
+langchain>=0.1.0
+
+# Utilities
+tqdm>=4.66.0
+python-dotenv>=1.0.0
