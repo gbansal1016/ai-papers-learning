@@ -95,6 +95,52 @@ This example  uses **Mistral-7B-Instruct-v0.1** for local inference (free, priva
 **For learning:** The slow inference is acceptable since we're studying CoT concepts, not optimizing production systems.
 
 
+
+### 5: Mixtral of Experts - Sparse Mixture of Experts Language Model
+
+**Authors:** Albert Q. Jiang, Alexandre Sablayrolles, Antoine Roux, Arthur Mensch, Blanche Savary, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Emma Bou Hanna, Florian Bressand, and 16 others from Mistral AI
+
+**Publication:** January 2024
+**Location**: `/mixtral-deepdive/`
+
+#### Key Insights
+Mixtral 8x7B demonstrates that **sparse mixture-of-experts (MoE) architecture achieves state-of-the-art performance with high efficiency**. Only 2 of 8 experts are activated per token, enabling 3.6x faster inference than 70B dense models while maintaining superior quality.
+
+**Key Metrics:**
+- **Total Parameters:** 47B
+- **Active Parameters per Token:** 13B (only ~28% active)
+- **Performance:** Outperforms Llama 2 70B and GPT-3.5 on multiple benchmarks
+- **Inference Speed:** 3.6x faster than 70B dense models
+- **Specialization:** Experts automatically specialize on different domains (code, math, language, reasoning)
+
+**Architecture Highlights:**
+- **Sparse Routing:** Top-2 expert selection per token (vs Top-1 in Switch Transformers)
+- **Load Balancing:** Auxiliary loss prevents expert collapse
+- **Expert Pool:** 8 independent feedforward experts (d_model=4096, d_hidden=14336)
+- **Attention:** Dense (not sparse) multi-head attention layer
+- **Temperature Scaling:** Controls routing sharpness during training vs inference
+- **Capacity Management:** Hard limits prevent expert overload
+
+**Training Innovations:**
+- Load balancing with auxiliary loss (prevents all tokens going to same expert)
+- Softmax temperature annealing (soft routing early, sharp routing late)
+- Importance-weighted load balancing (experts specialize naturally)
+- Capacity management (bounded expert load)
+
+**Real-World Impact:**
+- More accessible than 70B models (runs on consumer GPUs with quantization)
+- Better code generation than GPT-3.5
+- Strong mathematical reasoning
+- Excellent multilingual performance
+
+**Links:**
+- 📄 **ArXiv:** https://arxiv.org/abs/2401.04088
+- 📄 **PDF:** https://arxiv.org/pdf/2401.04088
+- 🤗 **HuggingFace:** https://huggingface.co/mistralai/Mixtral-8x7B-Instruct-v0.1
+- 🔍 **Semantic Scholar:** https://www.semanticscholar.org/paper/Mixtral-of-Experts-Jiang-Sablayrolles/411114f989a3d1083d90afd265103132fee94ebe
+
+---
+
 ## 🔗 Connection Between Papers
 
 **BERT (2018)** → **Scaling Laws (2020)**
@@ -103,6 +149,7 @@ This example  uses **Mistral-7B-Instruct-v0.1** for local inference (free, priva
 - Scaling Laws paper quantifies **exactly how much** scale matters
 - BERT's success inspired the systematic study of scaling relationships
 - Understanding these laws enabled modern models (GPT-3, LLaMA, Claude)
+- Mixtral's Innovation Achieves 70B model quality with 13B compute
 
 ---
 

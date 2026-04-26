@@ -1,0 +1,49 @@
+# Research Paper Deep Dive: Mixtral of Experts
+# Install with: pip install -r requirements.txt
+# Or in virtual env: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# ===== CORE ML FRAMEWORK =====
+torch>=2.0.0          # PyTorch - core deep learning framework
+torchvision>=0.15.0   # For vision utilities (if needed)
+torchaudio>=2.0.0     # For audio utilities (if needed)
+
+# ===== NUMERICAL & DATA PROCESSING =====
+numpy>=1.24.0         # Numerical computing
+pandas>=2.0.0         # Data manipulation
+scipy>=1.10.0         # Scientific computing
+scikit-learn>=1.3.0   # Machine learning utilities
+
+# ===== VISUALIZATION & ANALYSIS =====
+matplotlib>=3.7.0     # Plotting
+seaborn>=0.12.0       # Statistical visualization
+plotly>=5.14.0        # Interactive plots
+
+# ===== JUPYTER & NOTEBOOKS =====
+jupyter>=1.0.0        # Jupyter environment
+jupyterlab>=3.0.0     # JupyterLab interface
+ipykernel>=6.25.0     # IPython kernel
+ipywidgets>=8.0.0     # Interactive widgets in notebooks
+
+# ===== DEVELOPMENT & TESTING =====
+pytest>=7.4.0         # Testing framework
+pytest-cov>=4.1.0     # Code coverage
+black>=23.7.0         # Code formatter
+flake8>=6.0.0         # Linter
+isort>=5.12.0         # Import sorting
+
+# ===== OPTIONAL ENHANCEMENTS =====
+# Uncomment these if you want additional functionality:
+
+# transformers>=4.30.0  # HuggingFace transformers (for tokenizers)
+# accelerate>=0.20.0    # Distributed training utilities
+# wandb>=0.15.0         # Weights & Biases logging
+# tensorboard>=2.13.0   # TensorBoard visualization
+# tqdm>=4.66.0          # Progress bars
+
+# ===== NOTES =====
+# - Torch will be CPU by default. For GPU support, install:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu118
+#   (replace cu118 with your CUDA version)
+#
+# - All notebooks work with just the core dependencies
+# - Optional packages enhance functionality but aren't required
