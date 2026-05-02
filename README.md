@@ -141,15 +141,67 @@ Mixtral 8x7B demonstrates that **sparse mixture-of-experts (MoE) architecture ac
 
 ---
 
+### 6: DeepSeek-R1 - Reasoning Optimization via GRPO and Process Rewards
+
+**Authors:** DeepSeek Team
+
+**Publication:** January 2025
+**Location**: `/deepseek-r1/`
+
+#### Key Insights
+DeepSeek-R1 revolutionizes reasoning in language models through **Group Relative Policy Optimization (GRPO)** and **Process Reward Models**. Rather than optimizing for final answer correctness alone, it rewards the entire reasoning chain—achieving human-level performance on complex reasoning tasks while scaling efficiently.
+
+**Core Innovation: GRPO (Group Relative Policy Optimization)**
+- Unlike standard policy gradients that use fixed baselines, GRPO uses **group-relative rewards**
+- Compare each reasoning attempt against the group mean rather than a fixed baseline
+- Reduces variance without explicit value function training
+- More stable and sample-efficient than PPO for reasoning tasks
+
+**Architecture Highlights:**
+- **Process Reward Model:** Evaluates intermediate reasoning steps, not just final answers
+- **Group Sampling:** Multiple attempts per problem enable relative comparison
+- **Compute-Optimal Scaling:** Demonstrates reasoning time can substitute for model size
+- **Emergent Capabilities:** Long-chain reasoning emerges from training signal
+
+**Training Pipeline:**
+1. Supervised Fine-Tuning (SFT) on reasoning trajectories
+2. Process Reward Model training from human preference annotations
+3. GRPO optimization using group-relative advantages
+4. Iterative refinement with harder problems and longer reasoning chains
+
+**Key Differences from RLHF:**
+- **RLHF:** Trains reward model on final answer preferences, uses PPO
+- **GRPO:** Trains reward model on step-level feedback, uses group-relative comparisons
+- **Result:** GRPO is more sample-efficient for reasoning-heavy tasks
+
+**Real-World Impact:**
+- Demonstrates that reasoning capability is teachable through RL
+- Shows compute-performance trade-off: more reasoning time → better accuracy
+- Enables open-source reasoning models competitive with proprietary systems
+- Applicable to any task where intermediate steps matter (code, math, planning)
+
+**Links:**
+- 📄 **ArXiv:** https://arxiv.org/abs/2501.xxxxx (check official DeepSeek repo)
+- 📖 **Blog Post:** https://deepseek.com/blog/deepseek-r1
+- 🔧 **Official Repository:** https://github.com/deepseek-ai/DeepSeek-R1
+- 📚 **Learning Materials:** `/deepseek-r1/` - Complete deep dive with implementations
+
+---
+
 ## 🔗 Connection Between Papers
 
-**BERT (2018)** → **Scaling Laws (2020)**
+**BERT (2018)** → **Scaling Laws (2020)** → **Chain-of-Thought (2022)** → **DeepSeek-R1 (2025)**
 
-- BERT showed that **scale matters** for model performance
-- Scaling Laws paper quantifies **exactly how much** scale matters
-- BERT's success inspired the systematic study of scaling relationships
-- Understanding these laws enabled modern models (GPT-3, LLaMA, Claude)
-- Mixtral's Innovation Achieves 70B model quality with 13B compute
+- **BERT (2018)** showed that **scale matters** for model performance
+- **Scaling Laws (2020)** quantified **exactly how much** scale matters
+- **Chain-of-Thought (2022)** showed that **reasoning as text** improves complex task performance
+- **DeepSeek-R1 (2025)** combines all insights: scale + reasoning + RL optimization to achieve state-of-the-art reasoning
+- **Key Progression:** Pre-training → Understanding scale → Prompting for reasoning → Optimizing reasoning with RL
+
+**Relationship to Other Papers:**
+- **vs Mixtral:** Mixtral optimizes model efficiency through sparsity; DeepSeek-R1 optimizes reasoning through RL
+- **vs ToT:** Tree of Thoughts searches multiple paths at inference; DeepSeek-R1 learns better reasoning during training
+- **vs Scaling Laws:** Validates that reasoning time (compute) can improve performance as much as model size
 
 ---
 
@@ -158,12 +210,30 @@ Mixtral 8x7B demonstrates that **sparse mixture-of-experts (MoE) architecture ac
 ### Getting Started
 1. Each folder contains notebooks, guides, and code for the research paper
 2. Run the interactive notebook for visualizations
+3. **For DeepSeek-R1:** Start with `/rl-fundamentals/` for prerequisites, then `/deepseek-r1/` for the deep dive
 
+
+### Recommended Learning Path
+1. **BERT** (`/bert/`) - Understand transformer foundations
+2. **Scaling Laws** (`/scaling laws/`) - Learn how scale affects performance
+3. **Chain-of-Thought** (`/chain-of-thought/`) - Understand reasoning prompting
+4. **RL Fundamentals** (`/rl-fundamentals/`) - Master policy gradients and actor-critic methods
+5. **DeepSeek-R1** (`/deepseek-r1/`) - Apply RL to reasoning optimization
 
 ### Key Resources
 - **BERT Folder**: `/bert/` - Progressive exploration from Word2Vec to RAG
 - **Scaling Laws Folder**: `/scaling laws/` - Complete implementation with code
+- **RL Fundamentals**: `/rl-fundamentals/` - 5 phases covering RL theory and practice (5.5 hours)
+- **DeepSeek-R1 Deep Dive**: `/deepseek-r1/` - Prerequisites guide, comprehensive materials, and implementations
 - **This README**: Overview and connection between papers
+
+### Time Estimates
+- **BERT**: 2-3 hours
+- **Scaling Laws**: 1-2 hours
+- **Chain-of-Thought**: 1-2 hours
+- **RL Fundamentals**: 5.5 hours (can skip Phase 3-4 if pressed for time)
+- **DeepSeek-R1**: 4-6 hours (including paper reading and code exploration)
+- **Total**: ~15-20 hours for complete understanding
 
 ---
 
@@ -171,8 +241,8 @@ Mixtral 8x7B demonstrates that **sparse mixture-of-experts (MoE) architecture ac
 
 - Each paper builds on previous understanding
 - Scaling Laws is critical for understanding modern LLM design decisions
-- Connect findings back to BERT's architecture and training approach
+- RL Fundamentals (especially Phase 2: Policy Gradients) is essential before DeepSeek-R1
+- DeepSeek-R1 represents the cutting edge of reasoning optimization in language models
+- Materials include both educational implementations and production-ready concepts
 
 ---
-
-**Last Updated**: April 4, 2026 | **Current**: Week 2 of 15 | **Next**: PPO (Week 3)

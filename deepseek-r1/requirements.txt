@@ -1,0 +1,33 @@
+# DeepSeek-R1 Learning Materials - Python Dependencies
+# Python 3.8+
+
+# Core Scientific Computing
+numpy==1.24.3
+scipy==1.10.1
+pandas==2.0.3
+
+# Visualization
+matplotlib==3.7.2
+seaborn==0.12.2
+
+# Jupyter & Notebooks
+jupyter==1.0.0
+ipython==8.12.2
+ipykernel==6.25.1
+jupyterlab==4.0.5
+
+# Machine Learning (optional, for Phase 3+ extensions)
+torch==2.0.1
+transformers==4.30.2
+
+# Code Quality & Development
+black==23.7.0
+flake8==6.0.0
+mypy==1.4.1
+
+# Utilities
+tqdm==4.65.0
+pyyaml==6.0
+
+# For reproducibility
+# Exact versions specified above
