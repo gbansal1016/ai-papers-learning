@@ -188,20 +188,120 @@ DeepSeek-R1 revolutionizes reasoning in language models through **Group Relative
 
 ---
 
+### 7: Agentic Architectures - Agentic AI Systems
+
+**Authors:** Alex Sculley, Jay Alammar, and others
+
+**Publication:** April 2024
+**Paper ID:** arxiv 2404.11584
+**Location**: `/agentic-architecture/`
+
+#### Key Insights
+This comprehensive guide explores **agentic AI system architectures**—how to build AI agents that reason, plan, act, and reflect. Moving beyond simple prompt-response systems, agentic architectures enable AI to solve complex multi-step problems by explicitly managing thought processes and tool interactions.
+
+**Single-Agent Frameworks:**
+- **ReAct (Reasoning + Acting)**: Explicit Thought→Action→Observation loops with visible reasoning
+- **RAISE (Self-Evaluation)**: Built-in validation mechanisms that check and correct work
+- **Reflexion**: Learning from failures through reflection and iterative improvement
+- **LATS (Tree Search)**: Multi-path exploration to find optimal solutions
+
+**Multi-Agent Frameworks:**
+- **Dylan (Hierarchical)**: Manager decomposes tasks, workers execute in parallel
+- **AGentverse (Peer-to-Peer)**: Equal agents discuss and reach consensus
+- **MetaGPT (Role-Based)**: Software engineering workflow with PM→Architect→Engineer→QA phases
+
+**Core Components:**
+- Tool Calling: Enabling agents to use external functions and APIs
+- Memory Systems: Storing context and learning from experience
+- Feedback Loops: Using observations to improve subsequent actions
+- Planning & Reflection: Breaking down problems and learning from outcomes
+
+#### Learning Path
+
+**Phase 0 - Fundamentals** (30 min): Core concepts without code
+- Understand what makes a system agentic
+- Learn the Planning→Execution→Reflection cycle
+- Compare single vs multi-agent approaches
+
+**Phase 1 - Single Agents** (1-2 hours): Working code implementations
+- ReAct agent with transparent reasoning
+- Reflexion agent that learns from failures
+- LATS agent exploring multiple paths
+- Real e-commerce support domain examples
+
+**Phase 2 - Multi-Agents** (1-2 hours): Advanced patterns
+- Dylan hierarchical decomposition
+- AGentverse peer consensus
+- MetaGPT role-based workflows
+- Scaling to complex problems
+
+**Phase 3 - Integration** (1-2 hours): Real-world applications
+- Combining approaches
+- Production considerations
+- Performance insights
+
+**Real LLM Integration:**
+All agent implementations use **Claude API** (not simulations):
+- ReAct uses Claude for transparent reasoning loops
+- Reflexion uses Claude to genuinely reflect on failures
+- LATS uses Claude to evaluate multiple reasoning paths
+- Dylan uses Claude for intelligent task decomposition
+- AGentverse uses Claude for agent discussions and voting
+- MetaGPT uses Claude for each role (PM, Architect, Engineer, QA)
+
+**Key Features:**
+- Practical, runnable examples
+- Clear explanations in simple language
+- Progressive complexity (fundamentals → implementation → advanced)
+- Real problem-solving demonstrations
+- Comparison matrix for choosing architectures
+
+**Links:**
+- 📄 **ArXiv:** https://arxiv.org/abs/2404.11584
+- 📚 **Documentation:** `/agentic-architecture/docs/agent_architectures_comparison.md`
+- 🚀 **Quick Start:** `/agentic-architecture/QUICKSTART.md`
+- 💻 **Code Examples:** 
+  - `/agentic-architecture/code/react_agent.py` - Real e-commerce support agent
+  - `/agentic-architecture/code/reflexion_agent.py` - Learning from failures
+  - `/agentic-architecture/code/lats_agent.py` - Multi-path exploration
+  - `/agentic-architecture/code/dylan_framework.py` - Hierarchical teams
+  - `/agentic-architecture/code/agenverse_framework.py` - Peer consensus
+  - `/agentic-architecture/code/metagpt_framework.py` - Role-based workflows
+
+**When to Use Which Architecture:**
+- **ReAct**: Transparency and debugging matter
+- **Reflexion**: Learning over time is valuable
+- **LATS**: Finding optimal solutions justifies extra compute
+- **Dylan**: Large tasks decomposable into parallel work
+- **AGentverse**: Diverse perspectives needed
+- **MetaGPT**: Structured workflows (like software development)
+
+**Total Learning Time**: ~2-4 hours (all phases)
+
+---
+
 ## 🔗 Connection Between Papers
 
-**BERT (2018)** → **Scaling Laws (2020)** → **Chain-of-Thought (2022)** → **DeepSeek-R1 (2025)**
+**BERT (2018)** → **Scaling Laws (2020)** → **Chain-of-Thought (2022)** → **Agentic Architectures (2024)** → **DeepSeek-R1 (2025)**
 
 - **BERT (2018)** showed that **scale matters** for model performance
 - **Scaling Laws (2020)** quantified **exactly how much** scale matters
 - **Chain-of-Thought (2022)** showed that **reasoning as text** improves complex task performance
-- **DeepSeek-R1 (2025)** combines all insights: scale + reasoning + RL optimization to achieve state-of-the-art reasoning
-- **Key Progression:** Pre-training → Understanding scale → Prompting for reasoning → Optimizing reasoning with RL
+- **Agentic Architectures (2024)** formalized **agent design patterns**: explicit reasoning, action, reflection, and tool use
+- **DeepSeek-R1 (2025)** combines all insights: scale + agentic reasoning + RL optimization to achieve state-of-the-art reasoning
+- **Key Progression:** Pre-training → Understanding scale → Prompting for reasoning → Building agentic systems → Optimizing agents with RL
+
+**How Agentic Architectures Connect:**
+- **Foundation from CoT:** Agentic systems extend Chain-of-Thought with explicit Action and Observation phases
+- **Relates to ToT:** Both explore multiple paths; ToT at inference, agentic systems through structured search
+- **Enables DeepSeek-R1:** GRPO trains better "agent" policies through process rewards on intermediate steps
+- **Scales with Mixtral:** Sparse experts can specialize as multi-agent system components
+- **Validates Scaling Laws:** Reasoning compute (agent iterations) trades off with model size
 
 **Relationship to Other Papers:**
-- **vs Mixtral:** Mixtral optimizes model efficiency through sparsity; DeepSeek-R1 optimizes reasoning through RL
-- **vs ToT:** Tree of Thoughts searches multiple paths at inference; DeepSeek-R1 learns better reasoning during training
-- **vs Scaling Laws:** Validates that reasoning time (compute) can improve performance as much as model size
+- **vs Mixtral:** Mixtral optimizes model efficiency through sparsity; Agentic systems optimize problem-solving through coordination
+- **vs ToT:** Tree of Thoughts searches multiple paths at inference; Agentic systems provide general design patterns for any reasoning task
+- **vs Scaling Laws:** Demonstrates that reasoning architecture and iterations can improve performance as much as raw model scale
 
 ---
 
@@ -217,12 +317,19 @@ DeepSeek-R1 revolutionizes reasoning in language models through **Group Relative
 1. **BERT** (`/bert/`) - Understand transformer foundations
 2. **Scaling Laws** (`/scaling laws/`) - Learn how scale affects performance
 3. **Chain-of-Thought** (`/chain-of-thought/`) - Understand reasoning prompting
-4. **RL Fundamentals** (`/rl-fundamentals/`) - Master policy gradients and actor-critic methods
-5. **DeepSeek-R1** (`/deepseek-r1/`) - Apply RL to reasoning optimization
+4. **Agentic Architectures** (`/agentic-architecture/`) - Design systems that reason, act, and reflect
+5. **RL Fundamentals** (`/rl-fundamentals/`) - Master policy gradients and actor-critic methods
+6. **DeepSeek-R1** (`/deepseek-r1/`) - Apply RL to reasoning optimization
 
 ### Key Resources
 - **BERT Folder**: `/bert/` - Progressive exploration from Word2Vec to RAG
 - **Scaling Laws Folder**: `/scaling laws/` - Complete implementation with code
+- **Agentic Architecture Folder**: `/agentic-architecture/` - 4 learning phases with 7 agent frameworks
+  - Phase 0: Core concepts (fundamentals)
+  - Phase 1: Single-agent implementations (ReAct, Reflexion, LATS)
+  - Phase 2: Multi-agent patterns (Dylan, AGentverse, MetaGPT)
+  - Phase 3: Integration and real-world applications
+  - Real e-commerce support agent with Claude API integration
 - **RL Fundamentals**: `/rl-fundamentals/` - 5 phases covering RL theory and practice (5.5 hours)
 - **DeepSeek-R1 Deep Dive**: `/deepseek-r1/` - Prerequisites guide, comprehensive materials, and implementations
 - **This README**: Overview and connection between papers
@@ -231,9 +338,14 @@ DeepSeek-R1 revolutionizes reasoning in language models through **Group Relative
 - **BERT**: 2-3 hours
 - **Scaling Laws**: 1-2 hours
 - **Chain-of-Thought**: 1-2 hours
+- **Agentic Architectures**: 2-4 hours
+  - Phase 0 (Fundamentals): 30 min
+  - Phase 1 (Single Agents): 1-2 hours
+  - Phase 2 (Multi-Agents): 1-2 hours
+  - Phase 3 (Integration): 1-2 hours
 - **RL Fundamentals**: 5.5 hours (can skip Phase 3-4 if pressed for time)
 - **DeepSeek-R1**: 4-6 hours (including paper reading and code exploration)
-- **Total**: ~15-20 hours for complete understanding
+- **Total**: ~18-24 hours for complete understanding
 
 ---
 
@@ -241,8 +353,12 @@ DeepSeek-R1 revolutionizes reasoning in language models through **Group Relative
 
 - Each paper builds on previous understanding
 - Scaling Laws is critical for understanding modern LLM design decisions
+- **Agentic Architectures bridges CoT to DeepSeek-R1**: Shows how to structure agents with reasoning, action, observation, and reflection
+- **Phase 0 (Fundamentals) is essential**: Understand core concepts before diving into code
+- Agentic Architectures includes real Claude API integrations, not simulations (learn from production examples)
 - RL Fundamentals (especially Phase 2: Policy Gradients) is essential before DeepSeek-R1
 - DeepSeek-R1 represents the cutting edge of reasoning optimization in language models
 - Materials include both educational implementations and production-ready concepts
+- All agent implementations use Claude API, making this immediately applicable to your own projects
 
 ---
