@@ -19,30 +19,6 @@ python code/react_agent.py
 
 You should see the ReAct agent reasoning through a simple task with visible thought-action loops.
 
-## Which Notebook Should I Read First?
-
-**Recommended Path:**
-
-1. **START HERE**: `notebooks/phase0_fundamentals.ipynb`
-   - Read this first
-   - Understand core concepts
-   - No code, just concepts
-
-2. **THEN**: `notebooks/phase1_single_agents.ipynb`
-   - See working code
-   - Run and modify examples
-   - Understand each agent type
-
-3. **NEXT**: `notebooks/phase2_multi_agents.ipynb`
-   - Learn multi-agent patterns 
-   - See collaboration in action
-   - Understand tradeoffs
-
-4. **ADVANCED**: `notebooks/phase3_integrated.ipynb`
-   - Combine approaches
-   - Real-world examples
-   - Performance insights
-
 ## Expected Learning Outcomes
 
 After completing all phases, you'll be able to:
@@ -138,7 +114,7 @@ Product Manager → Architect → Engineer → QA
 ## Common Questions
 
 **Q: Do I need an API key?**
-A: No! All code runs locally with simulated environments.
+A: By default, code uses the Anthropic API (requires `ANTHROPIC_API_KEY`). To run locally without API keys, use Ollama or another local LLM (see "Using Local Models" below).
 
 **Q: Can I modify these agents?**
 A: Absolutely! They're designed for learning and experimentation.
@@ -151,6 +127,102 @@ A: Both! Notebooks for learning, Python files for quick demos.
 
 **Q: Which agent should I use for my project?**
 A: See README.md's "When to Use What" section
+
+## Using Local Models (No API Keys Required)
+
+### Option 1: Ollama (Easiest)
+
+**Install Ollama:**
+```bash
+# macOS/Linux/Windows
+# Download from https://ollama.ai
+```
+
+**Pull a model:**
+```bash
+ollama pull mistral  # Fast, capable model
+# Or: ollama pull llama2, neural-chat, etc.
+```
+
+**Start Ollama server:**
+```bash
+ollama serve
+# Runs on http://localhost:11434
+```
+
+**Update agent code to use Ollama:**
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="not-needed",  # Ollama doesn't need this
+    base_url="http://localhost:11434/v1",  # Ollama endpoint
+)
+
+response = client.messages.create(
+    model="mistral",  # Use Ollama model name
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Think step by step..."}]
+)
+```
+
+### Option 2: LM Studio (GUI-Based)
+
+**Install LM Studio:**
+```bash
+# Download from https://lmstudio.ai
+```
+
+**Load a model in LM Studio UI:**
+- Download your choice (Mistral, Neural Chat, etc.)
+- Click "Load into context"
+
+**Update code (same as Ollama):**
+```python
+client = Anthropic(
+    api_key="not-needed",
+    base_url="http://localhost:1234/v1",  # LM Studio endpoint
+)
+```
+
+### Option 3: Other Local Runners
+
+| Tool | Command | Endpoint |
+|------|---------|----------|
+| **Ollama** | `ollama serve` | `http://localhost:11434/v1` |
+| **LM Studio** | GUI app | `http://localhost:1234/v1` |
+| **vLLM** | `vllm serve mistral-7b` | `http://localhost:8000/v1` |
+| **Text Generation WebUI** | `python server.py` | `http://localhost:5000/v1` |
+
+### Option 4: Use Groq (Free API, No Claude)
+
+If you want a free API alternative:
+```python
+from groq import Groq
+
+client = Groq(api_key="your-groq-key")  # Free, fast inference
+
+response = client.chat.completions.create(
+    model="mixtral-8x7b-32768",
+    messages=[...],
+    max_tokens=1024,
+)
+```
+
+## Quick Comparison
+
+| Method | Speed | Cost | Setup | Quality |
+|--------|-------|------|-------|---------|
+| **Anthropic API** | Fast | $$ | 1 min | Excellent |
+| **Ollama Local** | Medium | Free | 10 min | Good |
+| **LM Studio** | Medium | Free | 15 min | Good |
+| **Groq** | Very Fast | Free | 5 min | Good |
+
+## Recommended for Learning
+
+- **Start with**: Ollama + Mistral (free, fast, good quality)
+- **For production**: Anthropic API or Groq
+- **For experimentation**: LM Studio (easiest UI)
 
 ## Next Steps
 

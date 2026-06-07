@@ -31,9 +31,6 @@ agentic-architecture/
 ├── requirements.txt                   (Python dependencies)
 ├── notebooks/
 │   ├── phase0_fundamentals.ipynb     (Concept overview - no code)
-│   ├── phase1_single_agents.ipynb    (ReAct, RAISE, Reflexion, LATS)
-│   ├── phase2_multi_agents.ipynb     (Dylan, AGentverse, MetaGPT)
-│   └── phase3_integrated.ipynb       (Advanced applications)
 ├── code/
 │   ├── react_agent.py                (ReAct implementation)
 │   ├── reflexion_agent.py            (Reflexion implementation)
@@ -48,24 +45,24 @@ agentic-architecture/
 
 ## Learning Path
 
-### Phase 0: Fundamentals (30 minutes)
+### Phase 0: Fundamentals
 - Core concepts of agentic reasoning
 - Understanding planning, execution, and reflection
 - Tool calling mechanisms
 - Key differences between agent types
 
-### Phase 1: Single-Agent Architectures (45 minutes)
+### Phase 1: Single-Agent Architectures
 - **ReAct**: Reasoning + Acting in loops
 - **RAISE**: Retrieval-Augmented Instruction-following for Self-Evaluation
 - **Reflexion**: Learning from failures through reflection
 - **LATS**: Language Agent Tree Search for improved reasoning
 
-### Phase 2: Multi-Agent Frameworks (60 minutes)
+### Phase 2: Multi-Agent Frameworks
 - **Dylan**: Dynamic hierarchical agent systems
 - **AGentverse**: Cooperative multi-agent environments
 - **MetaGPT**: Software engineering-inspired agent collaboration
 
-### Phase 3: Integrated Applications (45 minutes)
+### Phase 3: Integrated Applications
 - Combining single and multi-agent approaches
 - Real-world problem solving
 - Performance optimization strategies

@@ -4,7 +4,7 @@ MetaGPT Framework Implementation
 MetaGPT: Software engineering-inspired multi-agent collaboration
 
 Key Features:
-- Role-based agents using Claude reasoning (like software engineering roles)
+- Role-based agents using Claude/Ollama reasoning (like software engineering roles)
 - Structured workflows with clear handoffs
 - Document-driven collaboration
 - Sequential phases (design → development → testing)
@@ -13,32 +13,117 @@ Architecture:
     Product Manager → Architect → Engineer → QA
          (Plan)    → (Design)  → (Code)   → (Test)
 
-Each role has specific responsibilities and uses Claude to generate deliverables.
+Each role has specific responsibilities and uses Claude or Ollama to generate deliverables.
 Agents work in sequence, each building on previous deliverables.
 
-Real LLM Integration: Each role agent uses Claude API to generate its deliverables.
+Real LLM Integration: Each role agent uses Claude API OR Local Ollama to generate its deliverables.
 
 Requirements:
-    pip install anthropic
+    Option 1 (Anthropic): pip install anthropic
+    Option 2 (Local): pip install requests
 
 Setup:
-    1. Get your API key from https://console.anthropic.com
-    2. Export: export ANTHROPIC_API_KEY='your-key'
-    3. Run: python metagpt_framework.py
+    OPTION 1: Use Anthropic API (Claude)
+        1. Get your API key from https://console.anthropic.com
+        2. Export: export ANTHROPIC_API_KEY='your-key'
+        3. Run: python metagpt_framework.py
+
+    OPTION 2: Use Local Model (Ollama - NO API KEY NEEDED)
+        1. Install Ollama: https://ollama.ai
+        2. Run: ollama pull mistral && ollama serve
+        3. Run: python metagpt_framework.py
 """
 
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import os
+import requests
 from anthropic import Anthropic
 from multi_agent_framework import (
     BaseAgent, MultiAgentEnvironment, CoordinationProtocol,
     AgentRole, MessageType, TaskAllocation, Message
 )
 
-# Initialize Anthropic client
-client = Anthropic()
+# ============================================================================
+# OLLAMA CLIENT - Wrapper for calling Ollama API
+# ============================================================================
+
+class OllamaClient:
+    """Wrapper for Ollama API optimized for local models like Mistral"""
+    def __init__(self, model="mistral"):
+        self.model = model
+        self.api_url = "http://localhost:11434/api/generate"
+
+    def messages_create(self, system, messages, max_tokens=1000):
+        """Create a message using Ollama API with proper prompt formatting"""
+        full_prompt = system + "\n\n"
+        for msg in messages:
+            role = msg["role"].upper()
+            content = msg["content"]
+            if role == "USER":
+                full_prompt += f"User: {content}\n\n"
+            elif role == "ASSISTANT":
+                full_prompt += f"Assistant: {content}\n\n"
+        full_prompt += "Assistant: "
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json={
+                    "model": self.model,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "temperature": 0.3,
+                    "num_predict": max_tokens,
+                },
+                timeout=120
+            )
+            if response.status_code != 200:
+                raise Exception(f"Ollama error: {response.status_code}")
+            response_text = response.json().get("response", "").strip()
+            class MockResponse:
+                def __init__(self, text):
+                    self.content = [type('obj', (object,), {'text': text})]
+            return MockResponse(response_text)
+        except Exception as e:
+            raise Exception(f"Ollama error: {e}")
+
+# ============================================================================
+# CONFIGURATION - Switch between Anthropic API and Local Models
+# ============================================================================
+
+USE_LOCAL_MODEL = True  # Set to False to use Anthropic API instead
+
+if USE_LOCAL_MODEL:
+    print("🚀 Using LOCAL model (Ollama)")
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            if models:
+                print(f"✓ Ollama is running with models: {[m['name'] for m in models]}\n")
+            else:
+                print("⚠️  Ollama running but no models. Running: ollama pull mistral\n")
+                os.system("ollama pull mistral")
+        else:
+            raise Exception("Ollama not responding")
+    except Exception as e:
+        print(f"❌ ERROR: Ollama is not running!")
+        print(f"   Error: {e}")
+        print("   Start Ollama: /Users/gaurav/Documents/Ollama/restart_ollama.sh")
+        exit(1)
+    client = OllamaClient(model="mistral")
+    MODEL_NAME = "mistral"
+else:
+    print("🔑 Using Anthropic API (Claude)")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set")
+        exit(1)
+    client = Anthropic()
+    MODEL_NAME = "claude-3-5-sonnet-20241022"
+
+print(f"✓ Model: {MODEL_NAME}\n")
 
 
 class SoftwareEngineeeringRole(Enum):
@@ -159,13 +244,21 @@ Identify and list:
 Be concise but specific."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=300,
-                system="You are a professional Product Manager. Focus on clear, prioritized requirements.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are a professional Product Manager. Focus on clear, prioritized requirements.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=300,
+                    system="You are a professional Product Manager. Focus on clear, prioritized requirements.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
             description = response.content[0].text.strip()
+            print(f"\n[🤖 MODEL GENERATED - Product Manager Requirements]\n{description}\n")
         except Exception as e:
             description = f"Requirements for: {task.task_description}"
 
@@ -191,13 +284,21 @@ Provide:
 Be practical and modern."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=400,
-                system="You are a senior architect. Provide scalable, maintainable designs.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are a senior architect. Provide scalable, maintainable designs.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=400
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=400,
+                    system="You are a senior architect. Provide scalable, maintainable designs.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
             design_text = response.content[0].text.strip()
+            print(f"\n[🤖 MODEL GENERATED - Architect Design]\n{design_text}\n")
 
             # Extract architecture and components
             architecture = "Recommended architecture from analysis"
@@ -234,13 +335,21 @@ Provide:
 Keep it concise but professional."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=400,
-                system="You are a professional software engineer. Write clean, production-ready code.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are a professional software engineer. Write clean, production-ready code.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=400
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=400,
+                    system="You are a professional software engineer. Write clean, production-ready code.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
             implementation = response.content[0].text.strip()
+            print(f"\n[🤖 MODEL GENERATED - Engineer Implementation]\n{implementation}\n")
         except Exception as e:
             implementation = f"class {task.task_description.split()[0]}:\n  def execute(self):\n    pass"
 
@@ -267,13 +376,21 @@ Design tests for:
 Estimate test coverage."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=300,
-                system="You are a QA professional. Design comprehensive test plans.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are a QA professional. Design comprehensive test plans.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=300,
+                    system="You are a QA professional. Design comprehensive test plans.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
             test_plan = response.content[0].text.strip()
+            print(f"\n[🤖 MODEL GENERATED - QA Test Plan]\n{test_plan}\n")
         except Exception as e:
             test_plan = f"Test plan for: {task.task_description}"
 
@@ -449,33 +566,82 @@ class MetaGPTEnvironment(MultiAgentEnvironment):
 
 # Demo
 def main():
-    """Demo of MetaGPT framework with role-based workflow"""
+    """Interactive MetaGPT framework with role-based workflow"""
 
-    print("="*60)
-    print("MetaGPT Framework Demo - Role-Based Workflow")
-    print("="*60)
+    print("="*70)
+    print("🚀 MetaGPT Framework - Interactive Role-Based Software Engineering")
+    print("="*70)
+    print("\nMetaGPT uses specialized roles to build software collaboratively:")
+    print("  1. Product Manager → Creates requirements")
+    print("  2. Architect → Designs system architecture")
+    print("  3. Engineer → Implements code")
+    print("  4. QA → Creates test plans")
+    print("\n" + "="*70 + "\n")
 
-    # Create environment
-    env = MetaGPTEnvironment("MetaGPTDemo")
+    project_counter = 1
 
-    # Setup roles
-    env.setup_roles()
+    while True:
+        print("\n" + "-"*70)
+        print(f"Project #{project_counter}")
+        print("-"*70)
 
-    # Add task
-    task = TaskAllocation(
-        task_id="project_1",
-        task_description="Build a recommendation system for e-commerce platform",
-        assigned_agent=""
-    )
-    env.add_task(task)
+        # Get project description from user
+        project_desc = input("\n📋 Enter your project description (or 'quit' to exit): ").strip()
 
-    # Run workflow
-    env.run(num_steps=10)
+        if project_desc.lower() == "quit":
+            print("\n✅ Thank you for using MetaGPT Framework!")
+            break
+
+        if not project_desc:
+            print("⚠️  Please enter a valid project description")
+            continue
+
+        # Get number of workflow steps
+        while True:
+            try:
+                steps_input = input("🔄 How many workflow steps? (5-20, default=10): ").strip()
+                if not steps_input:
+                    num_steps = 10
+                    break
+                num_steps = int(steps_input)
+                if 5 <= num_steps <= 20:
+                    break
+                else:
+                    print("⚠️  Please enter a number between 5-20")
+            except ValueError:
+                print("⚠️  Please enter a valid number")
+
+        print(f"\n🎬 Starting workflow with {num_steps} steps...")
+        print("="*70)
+
+        # Create environment
+        env = MetaGPTEnvironment(f"Project_{project_counter}")
+
+        # Setup roles
+        env.setup_roles()
+
+        # Add task
+        task = TaskAllocation(
+            task_id=f"project_{project_counter}",
+            task_description=project_desc,
+            assigned_agent=""
+        )
+        env.add_task(task)
+
+        # Run workflow
+        print("\n🔥 Role-based workflow executing...\n")
+        env.run(num_steps=num_steps)
+
+        print("\n" + "="*70)
+        print("✅ Workflow completed!")
+        print("="*70)
+
+        project_counter += 1
 
 
 if __name__ == "__main__":
-    # Check if API key is set
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    # Check if API key is set (only needed for Anthropic API mode)
+    if not USE_LOCAL_MODEL and not os.getenv("ANTHROPIC_API_KEY"):
         print("ERROR: ANTHROPIC_API_KEY environment variable not set")
         print("Please set your API key: export ANTHROPIC_API_KEY='your-key-here'")
         exit(1)

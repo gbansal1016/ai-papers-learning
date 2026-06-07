@@ -8,25 +8,110 @@ evaluating and pruning to find the optimal solution.
 Key Pattern:
     State → Generate multiple actions → Evaluate branches → Prune weak paths → Best path
 
-Real LLM Integration: Uses Claude API to generate reasoning trajectories and evaluate them.
+Real LLM Integration: Uses Claude API OR Local Ollama to generate reasoning trajectories and evaluate them.
 
 Requirements:
-    pip install anthropic
+    Option 1 (Anthropic): pip install anthropic
+    Option 2 (Local): pip install requests
 
 Setup:
-    1. Get your API key from https://console.anthropic.com
-    2. Export: export ANTHROPIC_API_KEY='your-key'
-    3. Run: python lats_agent.py
+    OPTION 1: Use Anthropic API (Claude)
+        1. Get your API key from https://console.anthropic.com
+        2. Export: export ANTHROPIC_API_KEY='your-key'
+        3. Run: python lats_agent.py
+
+    OPTION 2: Use Local Model (Ollama - NO API KEY NEEDED)
+        1. Install Ollama: https://ollama.ai
+        2. Run: ollama pull mistral && ollama serve
+        3. Run: python lats_agent.py
 """
 
 from typing import List, Dict, Set, Tuple, Any
 from dataclasses import dataclass
 from collections import defaultdict
 import os
+import requests
 from anthropic import Anthropic
 
-# Initialize Anthropic client
-client = Anthropic()
+# ============================================================================
+# OLLAMA CLIENT - Wrapper for calling Ollama API
+# ============================================================================
+
+class OllamaClient:
+    """Wrapper for Ollama API optimized for local models like Mistral"""
+    def __init__(self, model="mistral"):
+        self.model = model
+        self.api_url = "http://localhost:11434/api/generate"
+
+    def messages_create(self, system, messages, max_tokens=1000):
+        """Create a message using Ollama API with proper prompt formatting"""
+        full_prompt = system + "\n\n"
+        for msg in messages:
+            role = msg["role"].upper()
+            content = msg["content"]
+            if role == "USER":
+                full_prompt += f"User: {content}\n\n"
+            elif role == "ASSISTANT":
+                full_prompt += f"Assistant: {content}\n\n"
+        full_prompt += "Assistant: "
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json={
+                    "model": self.model,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "temperature": 0.3,
+                    "num_predict": max_tokens,
+                },
+                timeout=120
+            )
+            if response.status_code != 200:
+                raise Exception(f"Ollama error: {response.status_code}")
+            response_text = response.json().get("response", "").strip()
+            class MockResponse:
+                def __init__(self, text):
+                    self.content = [type('obj', (object,), {'text': text})]
+            return MockResponse(response_text)
+        except Exception as e:
+            raise Exception(f"Ollama error: {e}")
+
+# ============================================================================
+# CONFIGURATION - Switch between Anthropic API and Local Models
+# ============================================================================
+
+USE_LOCAL_MODEL = True  # Set to False to use Anthropic API instead
+
+if USE_LOCAL_MODEL:
+    print("🚀 Using LOCAL model (Ollama)")
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            if models:
+                print(f"✓ Ollama is running with models: {[m['name'] for m in models]}\n")
+            else:
+                print("⚠️  Ollama running but no models. Running: ollama pull mistral\n")
+                os.system("ollama pull mistral")
+        else:
+            raise Exception("Ollama not responding")
+    except Exception as e:
+        print(f"❌ ERROR: Ollama is not running!")
+        print(f"   Error: {e}")
+        print("   Start Ollama: /Users/gaurav/Documents/Ollama/restart_ollama.sh")
+        exit(1)
+    client = OllamaClient(model="mistral")
+    MODEL_NAME = "mistral"
+else:
+    print("🔑 Using Anthropic API (Claude)")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set")
+        exit(1)
+    client = Anthropic()
+    MODEL_NAME = "claude-3-5-sonnet-20241022"
+
+print(f"✓ Model: {MODEL_NAME}\n")
 
 
 @dataclass
@@ -151,14 +236,22 @@ SCORE: [0-1]
 Be concise but specific."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=800,
-                system="You are exploring multiple solution paths for a complex problem. Generate diverse, thoughtful strategies.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are exploring multiple solution paths for a complex problem. Generate diverse, thoughtful strategies.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=800
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=800,
+                    system="You are exploring multiple solution paths for a complex problem. Generate diverse, thoughtful strategies.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
 
             response_text = response.content[0].text
+            print(f"\n[🤖 MODEL GENERATED - Strategy Generation]\n{response_text}\n")
 
             # Parse Claude's strategies
             strategies_text = response_text.split("STRATEGY:")
@@ -223,14 +316,22 @@ Also consider path efficiency (shorter paths are better).
 Respond with only a number between 0 and 1."""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=50,
-                system="You are evaluating problem-solving progress. Be analytical and fair.",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are evaluating problem-solving progress. Be analytical and fair.",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=50
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=50,
+                    system="You are evaluating problem-solving progress. Be analytical and fair.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
 
             response_text = response.content[0].text.strip()
+            print(f"[🤖 MODEL EVALUATION]\n{response_text}\n")
 
             # Extract score from response
             try:
@@ -260,17 +361,44 @@ Respond with only a number between 0 and 1."""
 
         return list(reversed(path))
 
-    def print_search_tree(self, node: SearchNode = None, indent: str = ""):
-        """Print the search tree structure"""
+    def print_search_tree(self, node: SearchNode = None, indent: str = "", is_root: bool = True):
+        """Print the search tree structure with enhanced labels"""
         if node is None:
             node = self.root
 
-        print(f"{indent}├─ {node.state} (score: {node.value:.2f}, depth: {node.depth})")
+        # Format node display
+        state_text = node.state[:60] + "..." if len(node.state) > 60 else node.state
 
-        for i, child in enumerate(node.children):
-            is_last = i == len(node.children) - 1
-            next_indent = indent + ("   " if is_last else "│  ")
-            self.print_search_tree(child, next_indent)
+        # Add depth label
+        depth_label = "ROOT" if node.depth == 0 else f"Level {node.depth}"
+
+        # Add score interpretation
+        if node.value >= 0.95:
+            score_label = "✓ GOAL!"
+        elif node.value >= 0.8:
+            score_label = "✓ Strong"
+        elif node.value >= 0.6:
+            score_label = "○ Medium"
+        else:
+            score_label = "○ Weak"
+
+        print(f"{indent}├─ [{depth_label}] {state_text}")
+        print(f"{indent}│  └─ Score: {node.value:.2f} ({score_label})")
+
+        # Show children
+        if node.children:
+            print(f"{indent}│  Explored {len(node.children)} path(s):")
+            for i, child in enumerate(node.children):
+                is_last = i == len(node.children) - 1
+                child_indent = indent + ("     " if is_last else "│    ")
+                print(f"{child_indent}├─ {child.state[:50]}...")
+                print(f"{child_indent}│  Score: {child.value:.2f}")
+
+                if child.children:
+                    next_indent = indent + ("     " if is_last else "│    ")
+                    self.print_search_tree(child, next_indent, is_root=False)
+
+        print()
 
     def print_summary(self):
         """Print summary of the search process"""
@@ -283,54 +411,111 @@ Respond with only a number between 0 and 1."""
 
 
 def main():
-    """Demo of LATS agent"""
+    """Interactive LATS Agent - Tree Search Problem Solver"""
 
-    # Example 1: Mathematical problem solving with multiple paths
-    print("\n" + "="*60)
-    print("Example 1: Math Problem with Tree Search")
-    print("="*60)
+    print("\n" + "="*70)
+    print("🌳 LATS AGENT - Language Agent Tree Search 🌳".center(70))
+    print("="*70)
+    print("\nExplore multiple solution paths simultaneously!")
+    print("Model: Mistral (via Ollama) | Beam Width: Control search breadth")
+    print("="*70)
 
-    agent1 = LATSAgent("LATS-Math", beam_width=3)
-    path1, score1 = agent1.solve(
-        problem="How to calculate 25 * 4 + 10?",
-        goal_state="Find the numerical solution"
-    )
-    agent1.print_summary()
+    while True:
+        print("\n" + "-"*70)
+        print("LATS TREE SEARCH SETUP")
+        print("-"*70)
 
-    print(f"\nFinal Score: {score1:.2f}")
+        # Get problem from user
+        print("\nEnter your problem (what do you want to solve?):")
+        print("Examples:")
+        print("  - The shoe store has a large assortment of shoes and related items. They had 50 boxes of shoes and many pair of socks. The store put two pairs of socks in 1 out of every t10 shoes bozes as a gift. How many pairs of socks were given out altogether?")
+        print("  - If A is larger than B, and B is larger than C, what is the order?")
+        print("  - What are effective strategies for debugging code?")
+        print("-"*70)
 
-    # Example 2: Logic problem with tree search
-    print("\n" + "="*60)
-    print("Example 2: Logic Problem with Explored Paths")
-    print("="*60)
+        problem = input("Problem: ").strip()
 
-    agent2 = LATSAgent("LATS-Logic", beam_width=3)
-    path2, score2 = agent2.solve(
-        problem="If A is larger than B, and B is larger than C, what is the order?",
-        goal_state="Determine the correct ordering"
-    )
+        if not problem:
+            print("❌ Problem cannot be empty. Please try again.")
+            continue
 
-    print(f"\nFinal Score: {score2:.2f}")
-    print(f"\nSearch Tree Structure:")
-    agent2.print_search_tree()
+        # Get goal state from user
+        print("\nWhat is your goal? (what do you want to achieve?)")
+        print("Examples:")
+        print("  - Find the numerical solution")
+        print("  - Determine the correct ordering")
+        print("  - Identify effective debugging strategies")
+        print("-"*70)
 
-    # Example 3: Complex reasoning with larger beam
-    print("\n" + "="*60)
-    print("Example 3: Complex Reasoning with Beam Search")
-    print("="*60)
+        goal = input("Goal: ").strip()
 
-    agent3 = LATSAgent("LATS-Complex", beam_width=3)
-    path3, score3 = agent3.solve(
-        problem="What are effective strategies for debugging software?",
-        goal_state="Identify debugging strategies and best practices"
-    )
+        if not goal:
+            print("❌ Goal cannot be empty. Please try again.")
+            continue
 
-    agent3.print_summary()
+        # Get beam width (optional)
+        print("\nHow many paths should the agent explore at each level?")
+        print("(Default: 3 - higher values explore more but take longer)")
+        print("-"*70)
+
+        beam_input = input("Beam width (1-5, press Enter for 3): ").strip()
+
+        beam_width = 3  # Default
+        if beam_input:
+            try:
+                beam_width = int(beam_input)
+                if beam_width < 1 or beam_width > 5:
+                    print("⚠️  Beam width must be 1-5. Using default: 3")
+                    beam_width = 3
+            except ValueError:
+                print("⚠️  Invalid input. Using default beam width: 3")
+                beam_width = 3
+
+        # Solve using LATS
+        print(f"\n{'='*70}")
+        print(f"🌳 SOLVING WITH TREE SEARCH (Beam Width: {beam_width})")
+        print(f"{'='*70}")
+
+        agent = LATSAgent(f"LATS-Interactive", beam_width=beam_width)
+
+        try:
+            path, score = agent.solve(problem=problem, goal_state=goal)
+
+            # Show results
+            print(f"\n{'='*70}")
+            print(f"SOLUTION FOUND")
+            print(f"{'='*70}")
+            print(f"\n✓ Path taken: {' → '.join(path)}")
+            print(f"✓ Final Score: {score:.2f}")
+
+            # Show summary
+            print(f"\n{'='*70}")
+            print(f"SEARCH SUMMARY")
+            print(f"{'='*70}")
+            agent.print_summary()
+
+            print(f"\n{'='*70}")
+            print(f"SEARCH TREE STRUCTURE")
+            print(f"{'='*70}")
+            agent.print_search_tree()
+
+        except Exception as e:
+            print(f"\n❌ Error solving problem: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+        # Ask if user wants to try another problem
+        print(f"\n{'='*70}")
+        again = input("Try another problem? (yes/no): ").strip().lower()
+        if again not in ["yes", "y"]:
+            print("\n✨ Thank you for using LATS Agent! Goodbye!\n")
+            break
 
 
 if __name__ == "__main__":
-    # Check if API key is set
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    # Check if API key is set (only needed for Anthropic API mode)
+    if not USE_LOCAL_MODEL and not os.getenv("ANTHROPIC_API_KEY"):
         print("ERROR: ANTHROPIC_API_KEY environment variable not set")
         print("Please set your API key: export ANTHROPIC_API_KEY='your-key-here'")
         exit(1)

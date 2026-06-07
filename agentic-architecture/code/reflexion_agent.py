@@ -8,25 +8,110 @@ and uses that reflection to improve subsequent attempts.
 Key Pattern:
     Attempt → Evaluate → Reflect (if failed) → Improve → Retry
 
-Real LLM Integration: Uses Claude API for actual attempt generation and reflection reasoning.
+Real LLM Integration: Uses Claude API OR Local Ollama for actual attempt generation and reflection reasoning.
 
 Requirements:
-    pip install anthropic
+    Option 1 (Anthropic): pip install anthropic
+    Option 2 (Local): pip install requests
 
 Setup:
-    1. Get your API key from https://console.anthropic.com
-    2. Export: export ANTHROPIC_API_KEY='your-key'
-    3. Run: python reflexion_agent.py
+    OPTION 1: Use Anthropic API (Claude)
+        1. Get your API key from https://console.anthropic.com
+        2. Export: export ANTHROPIC_API_KEY='your-key'
+        3. Run: python reflexion_agent.py
+
+    OPTION 2: Use Local Model (Ollama - NO API KEY NEEDED)
+        1. Install Ollama: https://ollama.ai
+        2. Run: ollama pull mistral && ollama serve
+        3. Run: python reflexion_agent.py
 """
 
 from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 import os
+import requests
 from anthropic import Anthropic
 
-# Initialize Anthropic client
-client = Anthropic()
+# ============================================================================
+# OLLAMA CLIENT - Wrapper for calling Ollama API
+# ============================================================================
+
+class OllamaClient:
+    """Wrapper for Ollama API optimized for local models like Mistral"""
+    def __init__(self, model="mistral"):
+        self.model = model
+        self.api_url = "http://localhost:11434/api/generate"
+
+    def messages_create(self, system, messages, max_tokens=1000):
+        """Create a message using Ollama API with proper prompt formatting"""
+        full_prompt = system + "\n\n"
+        for msg in messages:
+            role = msg["role"].upper()
+            content = msg["content"]
+            if role == "USER":
+                full_prompt += f"User: {content}\n\n"
+            elif role == "ASSISTANT":
+                full_prompt += f"Assistant: {content}\n\n"
+        full_prompt += "Assistant: "
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json={
+                    "model": self.model,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "temperature": 0.3,
+                    "num_predict": max_tokens,
+                },
+                timeout=120
+            )
+            if response.status_code != 200:
+                raise Exception(f"Ollama error: {response.status_code}")
+            response_text = response.json().get("response", "").strip()
+            class MockResponse:
+                def __init__(self, text):
+                    self.content = [type('obj', (object,), {'text': text})]
+            return MockResponse(response_text)
+        except Exception as e:
+            raise Exception(f"Ollama error: {e}")
+
+# ============================================================================
+# CONFIGURATION - Switch between Anthropic API and Local Models
+# ============================================================================
+
+USE_LOCAL_MODEL = True  # Set to False to use Anthropic API instead
+
+if USE_LOCAL_MODEL:
+    print("🚀 Using LOCAL model (Ollama)")
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            if models:
+                print(f"✓ Ollama is running with models: {[m['name'] for m in models]}\n")
+            else:
+                print("⚠️  Ollama running but no models. Running: ollama pull mistral\n")
+                os.system("ollama pull mistral")
+        else:
+            raise Exception("Ollama not responding")
+    except Exception as e:
+        print(f"❌ ERROR: Ollama is not running!")
+        print(f"   Error: {e}")
+        print("   Start Ollama: /Users/gaurav/Documents/Ollama/restart_ollama.sh")
+        exit(1)
+    client = OllamaClient(model="mistral")
+    MODEL_NAME = "mistral"
+else:
+    print("🔑 Using Anthropic API (Claude)")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set")
+        exit(1)
+    client = Anthropic()
+    MODEL_NAME = "claude-3-5-sonnet-20241022"
+
+print(f"✓ Model: {MODEL_NAME}\n")
 
 
 @dataclass
@@ -54,22 +139,46 @@ class TaskValidator:
 
     @staticmethod
     def validate_math_solution(problem: str, solution: str) -> Tuple[bool, str]:
-        """Validate a math solution"""
+        """Validate a math solution by extracting the expression from verbose output"""
         try:
             # Check if solution contains equals sign
             if "=" not in solution:
                 return False, "Solution format incorrect (missing '=')"
 
-            left, right = solution.split("=")
-            answer = eval(left.strip())
-            expected = eval(right.strip())
+            # Extract mathematical expression: look for pattern like "25 * 4 + 10 = 110"
+            # This handles verbose model outputs by finding the actual math expression
+            import re
+            # Try to find pattern: number/expression = number/expression
+            matches = re.findall(r'(\d+[\s\*\+\-\/\(\)]*\d+[\s\*\+\-\/\(\)]*)\s*=\s*(\d+)', solution)
+
+            if matches:
+                # Use the extracted expression
+                left, right = matches[0]
+                left = left.strip()
+                right = right.strip()
+            else:
+                # Fallback to simple split if regex doesn't work
+                parts = solution.split("=")
+                if len(parts) < 2:
+                    return False, "Solution format incorrect (missing '=')"
+                left = parts[-2].strip()  # Get last equation part
+                right = parts[-1].strip()
+
+            print(f"[VALIDATOR] Evaluating: '{left}' = '{right}'")
+
+            # Evaluate both sides
+            answer = eval(left)
+            expected = eval(right)
+
+            print(f"[VALIDATOR] Result: {answer} = {expected} ? {answer == expected}")
 
             if answer == expected:
                 return True, "Correct solution"
             else:
                 return False, f"Incorrect math (got {answer}, expected {expected})"
-        except:
-            return False, "Invalid mathematical expression"
+        except Exception as e:
+            print(f"[VALIDATOR] Exception: {e}")
+            return False, f"Invalid mathematical expression: {str(e)}"
 
     @staticmethod
     def validate_logic_solution(problem: str, solution: str) -> Tuple[bool, str]:
@@ -180,15 +289,24 @@ class ReflexionAgent:
             system_prompt = f"You are a {problem_type} problem solver. You've learned from previous attempts. Use those lessons to solve this better. Format your final answer clearly."
             user_message = f"Problem: {problem}\n\nLessons from previous attempts:\n{reflection_context}\n\nPlease solve this step by step, applying the lessons learned."
 
-        # Get Claude's attempt
+        # Get Claude's attempt or Mistral's attempt
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=500,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
-            )
-            return response.content[0].text
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_message}],
+                    max_tokens=500
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=500,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_message}]
+                )
+            assistant_message = response.content[0].text
+            print(f"\n[🤖 MODEL GENERATED - Attempt]\n{assistant_message}\n")
+            return assistant_message
         except Exception as e:
             print(f"Error calling Claude API: {e}")
             return f"Error generating attempt: {str(e)}"
@@ -227,14 +345,22 @@ LESSON: [lesson]
 STRATEGY: [strategy]"""
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=300,
-                system="You are an analytical coach helping someone improve at problem solving. Focus on concrete, actionable insights.",
-                messages=[{"role": "user", "content": reflection_prompt}]
-            )
+            if USE_LOCAL_MODEL:
+                response = client.messages_create(
+                    system="You are an analytical coach helping someone improve at problem solving. Focus on concrete, actionable insights.",
+                    messages=[{"role": "user", "content": reflection_prompt}],
+                    max_tokens=300
+                )
+            else:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=300,
+                    system="You are an analytical coach helping someone improve at problem solving. Focus on concrete, actionable insights.",
+                    messages=[{"role": "user", "content": reflection_prompt}]
+                )
 
             response_text = response.content[0].text
+            print(f"\n[🤖 MODEL GENERATED - Reflection]\n{response_text}\n")
 
             # Parse the response
             reason = "Analysis incomplete"
@@ -304,30 +430,80 @@ STRATEGY: [strategy]"""
 
 
 def main():
-    """Demo of Reflexion agent"""
+    """Interactive Reflexion Agent"""
 
-    # Example 1: Math problem with reflection
-    print("\n" + "="*60)
-    print("Example 1: Math Problem with Reflexion Learning")
-    print("="*60)
+    print("\n" + "="*70)
+    print("🧠 REFLEXION AGENT - Interactive Problem Solver 🧠".center(70))
+    print("="*70)
+    print("\nLearn from failures through self-reflection and improvement!")
+    print("Max attempts: 4 | Local Model: Mistral (via Ollama)")
+    print("="*70)
 
-    agent1 = ReflexionAgent("Reflexion-Math")
-    answer1 = agent1.solve("Calculate: 25 * 4 + 10?", problem_type="math")
-    agent1.show_learning_curve()
+    while True:
+        print("\n" + "-"*70)
+        print("PROBLEM TYPE SELECTION")
+        print("-"*70)
+        print("1. Math Problem    (e.g., 'Solve: 3x + 5 = 20')")
+        print("2. Logic Problem   (e.g., 'Is a square also a rectangle?')")
+        print("3. Quit")
+        print("-"*70)
 
-    # Example 2: Logic problem with reflection
-    print("\n" + "="*60)
-    print("Example 2: Logic Problem with Self-Improvement")
-    print("="*60)
+        choice = input("\nSelect problem type (1/2/3): ").strip()
 
-    agent2 = ReflexionAgent("Reflexion-Logic")
-    answer2 = agent2.solve("If someone is taller than John, and John is taller than Mary, who is the tallest?", problem_type="logic")
-    agent2.print_summary()
+        if choice == "3":
+            print("\n✨ Thank you for using Reflexion Agent! Goodbye!\n")
+            break
+
+        if choice not in ["1", "2"]:
+            print("❌ Invalid choice. Please select 1, 2, or 3.")
+            continue
+
+        # Get problem type
+        if choice == "1":
+            problem_type = "math"
+            type_name = "MATH PROBLEM"
+            example = "Example: Solve 2x + 3 = 11 for x"
+        else:
+            problem_type = "logic"
+            type_name = "LOGIC PROBLEM"
+            example = "Example: If all cats are animals, and Fluffy is a cat, is Fluffy an animal?"
+
+        # Get problem from user
+        print(f"\n{type_name}")
+        print(f"{example}")
+        print("-"*70)
+        problem = input("Enter your problem: ").strip()
+
+        if not problem:
+            print("❌ Problem cannot be empty. Please try again.")
+            continue
+
+        # Create agent and solve
+        agent_name = f"Reflexion-{problem_type.upper()}"
+        agent = ReflexionAgent(agent_name)
+
+        print(f"\n{'='*70}")
+        print(f"🤔 SOLVING YOUR {problem_type.upper()} PROBLEM")
+        print(f"{'='*70}")
+
+        try:
+            answer = agent.solve(problem, problem_type=problem_type)
+            agent.show_learning_curve()
+        except Exception as e:
+            print(f"\n❌ Error solving problem: {e}")
+            continue
+
+        # Ask if user wants to try another problem
+        print(f"\n{'='*70}")
+        again = input("Try another problem? (yes/no): ").strip().lower()
+        if again not in ["yes", "y"]:
+            print("\n✨ Thank you for using Reflexion Agent! Goodbye!\n")
+            break
 
 
 if __name__ == "__main__":
-    # Check if API key is set
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    # Check if API key is set (only needed for Anthropic API mode)
+    if not USE_LOCAL_MODEL and not os.getenv("ANTHROPIC_API_KEY"):
         print("ERROR: ANTHROPIC_API_KEY environment variable not set")
         print("Please set your API key: export ANTHROPIC_API_KEY='your-key-here'")
         exit(1)
