@@ -29,12 +29,21 @@ Thumbs.db
 *.ipynb_checkpoints
 
 # Images
-*.png
-*.jpg
-*.jpeg
-*.gif
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
 
 # Data files (if too large)
 *.pkl
 *.h5
 *.bin
+
+# Duplicate paper folders (exist as top-level folders in repo)
+agentic-architecture/
+bert/
+chain-of-thought/
+deepseek-r1/
+mixtral/
+scaling laws/
+tree-of-thoughts/
