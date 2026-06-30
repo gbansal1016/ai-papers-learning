@@ -38,3 +38,5 @@ Thumbs.db
 *.pkl
 *.h5
 *.bin
+*_accessKeys.csv
+*_credentials.csv
