@@ -1,0 +1,17 @@
+# SAM build artifacts
+infrastructure/.aws-sam/
+infrastructure/response.json
+
+# Personal data exports
+infrastructure/episodic.memory
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Env files
+.env
+.env.*

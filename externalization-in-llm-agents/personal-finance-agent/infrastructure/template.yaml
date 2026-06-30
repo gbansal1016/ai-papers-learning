@@ -1,0 +1,539 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: FinAgent — Personal Finance AI Agent (AWS Agent Core + Strands + DynamoDB)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  BriefingSchedule:
+    Type: String
+    Default: "cron(0 15 * * ? *)"   # 7am PST = 15:00 UTC
+  AdminEmail:
+    Type: String
+    Default: "gtmrrental@gmail.com"
+    Description: "Email for CloudWatch alarm notifications (ops/admin only)"
+  SesVerifiedEmail:
+    Type: String
+    Default: "gtmrrental@gmail.com"
+    Description: "Sender email verified in SES (used as From: address in dev)"
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 120
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        MEMORY_DDB_TABLE: !Ref MemoryTable
+        SKILLS_S3_BUCKET: !Ref SkillsBucket
+        APPROVAL_SNS_TOPIC_ARN: !Ref ApprovalTopic
+        BRIEFING_TOPIC_ARN: !Ref BriefingTopic
+        USERS_TABLE: !Ref UsersTable
+        APPROVALS_TABLE: !Ref ApprovalsTable
+        OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
+        ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+        BRIEFING_DLQ_URL: !Ref BriefingDLQ
+        SES_FROM_EMAIL: !Ref SesVerifiedEmail        # verified sender; swap to domain address in prod
+        FRONTEND_URL: !Sub "https://${FrontendDistribution.DomainName}"
+
+Resources:
+
+  # ── API Gateway: REST API with Cognito authorizer ─────────────────────────
+  # Explicit API resource required to define a Cognito authorizer.
+  # SAM's implicit ServerlessRestApi cannot be customized.
+  FinAgentApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "finagent-api-${Environment}"
+      StageName: !Ref Environment
+      Cors:
+        # Dev: allow all origins to avoid circular dependency with FrontendDistribution.
+        # Prod: replace '*' with the CloudFront domain from the FrontendUrl output.
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowMethods: "'GET,POST,OPTIONS'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+            Identity:
+              Header: Authorization   # client sends "Authorization: Bearer <JWT>"
+        # Approval endpoints use Cognito too — user must be logged in to approve
+        AddDefaultAuthorizerToCorsPreflight: false
+
+  # ── DynamoDB: 4-tier memory store ─────────────────────────────────────────
+  MemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "finagent-memory-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      TableClass: STANDARD
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - { AttributeName: user_id,   AttributeType: S }
+        - { AttributeName: sort_key,  AttributeType: S }
+      KeySchema:
+        - { AttributeName: user_id,  KeyType: HASH }
+        - { AttributeName: sort_key, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true       # WORKING: 24h TTL, EPISODIC: 90d TTL, SEMANTIC/PERSONAL: no TTL
+      # Sort key format by memory type:
+      #   PERSONAL  → "PERSONAL#profile"
+      #   EPISODIC  → "EPISODIC#2026-06-18T14:30:00Z"
+      #   WORKING   → "WORKING#sess_1718123456"
+      #   SEMANTIC  → "SEMANTIC#topic_name"
+
+  # ── DynamoDB: trade approvals (permanent audit trail) ─────────────────────
+  ApprovalsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "finagent-approvals-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - { AttributeName: approval_id, AttributeType: S }
+        - { AttributeName: user_id,     AttributeType: S }
+        - { AttributeName: created_at,  AttributeType: S }
+      KeySchema:
+        - { AttributeName: approval_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: user-createdAt-index
+          KeySchema:
+            - { AttributeName: user_id,    KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection:
+            ProjectionType: ALL
+      # No TTL — records kept permanently for audit trail
+
+  # ── DynamoDB: OAuth tokens (Plaid, Experian, future providers) ────────────
+  OAuthTokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "finagent-oauth-tokens-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: user_provider, AttributeType: S }
+        - { AttributeName: account_name,  AttributeType: S }
+      KeySchema:
+        - { AttributeName: user_provider, KeyType: HASH }
+        - { AttributeName: account_name,  KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      # user_provider format: "gaurav@example.com#plaid" | "gaurav@example.com#experian"
+      # account_name  format: "BofA_checking" | "Chase_savings" | "default"
+
+  # ── DynamoDB: users ────────────────────────────────────────────────────────
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "finagent-users-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - { AttributeName: user_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: user_id, KeyType: HASH }
+      # No TTL — user records are permanent
+      # Sample record:
+      #   user_id          = "gaurav@example.com"
+      #   is_active        = true
+      #   briefing_enabled = true
+      #   timezone         = "America/Los_Angeles"
+      #   cognito_sub      = "abc123-..."
+      #   created_at       = "2026-06-18T10:00:00Z"
+      #   last_active_at   = "2026-06-18T14:30:00Z"
+      #   notifications    = {"email": "gtmrrental@gmail.com", "sms": null, "push": null}
+
+  # ── S3: skill files ────────────────────────────────────────────────────────
+  SkillsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "finagent-skills-${Environment}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Bucket policy — only Lambda execution roles can read skill files
+  SkillsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SkillsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyPublicAccess
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !Sub "arn:aws:s3:::${SkillsBucket}"
+              - !Sub "arn:aws:s3:::${SkillsBucket}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false   # deny non-HTTPS requests
+          - Sid: AllowLambdaReadOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !Sub "arn:aws:s3:::${SkillsBucket}"
+              - !Sub "arn:aws:s3:::${SkillsBucket}/*"
+
+  # ── Lambda: main agent handler ─────────────────────────────────────────────
+  AgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "finagent-agent-${Environment}"
+      CodeUri: ../agent/
+      Handler: agent_core.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref MemoryTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ApprovalsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref OAuthTokensTable }
+        - DynamoDBReadPolicy:  { TableName: !Ref UsersTable }
+        - S3ReadPolicy: { BucketName: !Ref SkillsBucket }
+        - SSMParameterReadPolicy: { ParameterName: "finagent/*" }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt ApprovalTopic.TopicName }
+        - Statement:
+            Effect: Allow
+            Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+            Resource:
+              - "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
+              - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-*"
+        - Statement:
+            Effect: Allow
+            Action: [ses:SendEmail, ses:SendRawEmail]
+            Resource: "*"
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FinAgentApi
+            Path: /chat
+            Method: post
+            # Auth inherited from FinAgentApi DefaultAuthorizer (CognitoAuthorizer)
+
+  # ── SQS: dead letter queue for failed briefings ───────────────────────────
+  BriefingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "finagent-briefing-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600   # 14 days — time to investigate failures
+      VisibilityTimeout: 300
+
+  # ── Lambda: daily market briefing (background) ─────────────────────────────
+  BriefingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "finagent-briefing-${Environment}"
+      CodeUri: ../agent/
+      Handler: agent_core.market_briefing_handler
+      Timeout: 300
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt BriefingDLQ.Arn
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref MemoryTable }
+        - DynamoDBReadPolicy:  { TableName: !Ref UsersTable }
+        - S3ReadPolicy: { BucketName: !Ref SkillsBucket }
+        - SSMParameterReadPolicy: { ParameterName: "finagent/*" }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt BriefingTopic.TopicName }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt BriefingDLQ.QueueName }
+        - Statement:
+            Effect: Allow
+            Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+            Resource:
+              - "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
+              - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-*"
+        - Statement:
+            Effect: Allow
+            Action: [ses:SendEmail, ses:SendRawEmail]
+            Resource: "*"
+      Events:
+        DailySchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: !Ref BriefingSchedule
+            ScheduleExpressionTimezone: "America/Los_Angeles"
+            FlexibleTimeWindow:
+              Mode: "OFF"
+
+  # ── Lambda: episodic → semantic memory consolidation ─────────────────────
+  ConsolidationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "finagent-consolidation-${Environment}"
+      CodeUri: ../agent/
+      Handler: agent_core.consolidation_handler
+      Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref MemoryTable }
+        - DynamoDBReadPolicy:  { TableName: !Ref UsersTable }
+        - Statement:
+            Effect: Allow
+            Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+            Resource:
+              - "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
+              - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-*"
+      Events:
+        WeeklySchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: "cron(0 6 ? * MON *)"   # Every Monday 6am UTC
+            ScheduleExpressionTimezone: "UTC"
+            FlexibleTimeWindow:
+              Mode: "OFF"
+
+  # ── Lambda: trade approval callback ───────────────────────────────────────
+  ApprovalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "finagent-approval-${Environment}"
+      CodeUri: ../agent/
+      Handler: agent_core.approval_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ApprovalsTable }
+      Events:
+        GetApprovalEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FinAgentApi
+            Path: /approval/{approvalId}
+            Method: get
+            # Frontend GETs this to display trade details before user decides
+        ApproveEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FinAgentApi
+            Path: /approve/{approvalId}
+            Method: post
+            # Cognito auth required — user must be logged in via frontend to call this
+        CancelEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FinAgentApi
+            Path: /cancel/{approvalId}
+            Method: post
+
+  # ── SNS: operational alerts (CloudWatch → admin email) ───────────────────
+  # This topic is ONLY for system alerts sent to the admin.
+  # User notifications (briefings, approvals) go through SES directly.
+  AdminAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "finagent-admin-alerts-${Environment}"
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AdminEmail   # confirm this subscription after deploy
+
+  # ── SNS: retained for AgentFunction SNSPublishMessagePolicy reference ─────
+  # No email subscriptions — user notifications go via SES.
+  ApprovalTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "finagent-approvals-${Environment}"
+
+  BriefingTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "finagent-briefings-${Environment}"
+
+  # ── SES: email sending identity ───────────────────────────────────────────
+  # Verifies the sender address/domain with SES.
+  # In dev: verify a single email address (free, instant).
+  # In prod: verify your domain (requires DNS TXT record).
+  # ⚠️ SES starts in sandbox — you must also verify recipient emails in dev.
+  #    Request production access in SES console before going live.
+  SesEmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref SesVerifiedEmail   # e.g. "gtmrrental@gmail.com" for dev
+      # To use a domain instead: EmailIdentity: "finagent.app"
+      # DkimAttributes: { SigningEnabled: true }   # enable for domain identities
+
+  # ── Cognito: user auth ─────────────────────────────────────────────────────
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "finagent-users-${Environment}"
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      # MFA: OPTIONAL — upgrade to TOTP for prod
+      MfaConfiguration: "OFF"
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: finagent-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false   # public client (browser SPA)
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 1        # hours
+      RefreshTokenValidity: 30      # days
+      # Allowed callback/logout URLs for Cognito Hosted UI (optional)
+      # CallbackURLs:
+      #   - !Sub "https://${FrontendDistribution.DomainName}/callback"
+      # LogoutURLs:
+      #   - !Sub "https://${FrontendDistribution.DomainName}/"
+
+  # ── S3: frontend static hosting ───────────────────────────────────────────
+  # Hosts the trade approval HTML page. Private bucket — served via CloudFront.
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "finagent-frontend-${Environment}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # No website hosting config — CloudFront serves the files via OAC
+
+  # Origin Access Control — lets CloudFront read from the private S3 bucket
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "finagent-oac-${Environment}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Bucket policy — allows only CloudFront OAC to read objects
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${FrontendBucket}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+
+  # ── CloudFront: CDN for frontend ──────────────────────────────────────────
+  # HTTPS-only, serves index.html for all paths (SPA routing).
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_100   # US/EU/Canada only — cheapest
+        Origins:
+          - Id: FrontendS3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig: {}       # required but empty when using OAC
+            OriginAccessControlId: !GetAtt FrontendOAC.Id
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized (AWS managed)
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+        # Return index.html for 403/404 — handles SPA client-side routing
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # ── Bedrock: model must be enabled manually in AWS Console ────────────────
+  # AWS Agent Core is configured via the Bedrock console or AgentCore SDK.
+  # Run: aws bedrock list-foundation-models --region us-west-2 to confirm access.
+
+  # ── CloudWatch: alarms ─────────────────────────────────────────────────────
+  # Both alarms notify AdminAlertsTopic (admin email via SNS).
+  # ⚠️ Confirm the SNS email subscription after deploy or alerts won't arrive.
+  AgentErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "finagent-agent-errors-${Environment}"
+      AlarmDescription: "AgentFunction raised >= 5 errors in 5 minutes"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AgentFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AdminAlertsTopic]
+
+  BriefingErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "finagent-briefing-errors-${Environment}"
+      AlarmDescription: "BriefingFunction raised any error during daily run"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BriefingFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AdminAlertsTopic]
+
+Outputs:
+  AgentApiEndpoint:
+    Description: "POST /chat — send user messages here (requires Cognito JWT)"
+    Value: !Sub "https://${FinAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/chat"
+  ApprovalApiEndpoint:
+    Description: "POST /approve/{id} and /cancel/{id} — called by frontend"
+    Value: !Sub "https://${FinAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/approve/{approvalId}"
+  FrontendUrl:
+    Description: "Trade approval frontend — open this URL, log in, approve/reject trades"
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+  FrontendBucketName:
+    Description: "Upload index.html here after deploy"
+    Value: !Ref FrontendBucket
+  UserPoolId:
+    Description: "Cognito User Pool ID — needed to create test users"
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: "Cognito App Client ID — used in frontend JS for auth"
+    Value: !Ref UserPoolClient
+  MemoryTableName:
+    Value: !Ref MemoryTable
+  SkillsBucketName:
+    Value: !Ref SkillsBucket

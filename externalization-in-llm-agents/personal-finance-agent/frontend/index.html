@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinAgent — Trade Approval</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <!-- AWS Amplify Auth (Cognito) — loaded from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js/dist/amazon-cognito-identity.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+      padding: 40px;
+      max-width: 480px;
+      width: 100%;
+    }
+    h1 { font-size: 22px; margin-bottom: 6px; color: #1a1a1a; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 28px; }
+    label { display: block; font-size: 13px; color: #444; margin-bottom: 4px; font-weight: 500; }
+    input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      margin-bottom: 16px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    input:focus { border-color: #4f46e5; }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-approve { background: #16a34a; color: white; margin-bottom: 12px; }
+    .btn-cancel  { background: #dc2626; color: white; }
+    .trade-box {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .trade-box h2 { font-size: 16px; margin-bottom: 12px; color: #1a1a1a; }
+    .trade-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    .trade-row:last-child { border-bottom: none; }
+    .trade-row .label { color: #666; }
+    .trade-row .value { font-weight: 600; color: #1a1a1a; }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-buy  { background: #dcfce7; color: #16a34a; }
+    .badge-sell { background: #fee2e2; color: #dc2626; }
+    .message {
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-top: 16px;
+      text-align: center;
+    }
+    .message.success { background: #dcfce7; color: #16a34a; }
+    .message.error   { background: #fee2e2; color: #dc2626; }
+    .message.info    { background: #e0e7ff; color: #4f46e5; }
+    #login-section  { display: block;  }
+    #trade-section  { display: none;  }
+    #result-section { display: none;  }
+    .spinner { text-align: center; padding: 20px; color: #666; font-size: 14px; }
+    .expiry { font-size: 12px; color: #999; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div class="card">
+
+  <!-- ── Login section ──────────────────────────────────────────────────── -->
+  <div id="login-section">
+    <h1>FinAgent</h1>
+    <p class="subtitle">Sign in to review your trade approval request.</p>
+    <label>Email</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="username">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+    <button class="btn btn-primary" onclick="signIn()">Sign In</button>
+    <div id="login-message"></div>
+  </div>
+
+  <!-- ── Trade details + approve/cancel ────────────────────────────────── -->
+  <div id="trade-section">
+    <h1>Trade Approval</h1>
+    <p class="subtitle">Review and confirm or cancel the trade below.</p>
+    <div class="trade-box">
+      <h2>Trade Details</h2>
+      <div class="trade-row">
+        <span class="label">Action</span>
+        <span class="value" id="td-side">—</span>
+      </div>
+      <div class="trade-row">
+        <span class="label">Symbol</span>
+        <span class="value" id="td-symbol">—</span>
+      </div>
+      <div class="trade-row">
+        <span class="label">Quantity</span>
+        <span class="value" id="td-qty">—</span>
+      </div>
+      <div class="trade-row">
+        <span class="label">Est. Value</span>
+        <span class="value" id="td-value">—</span>
+      </div>
+      <div class="trade-row">
+        <span class="label">Order Type</span>
+        <span class="value" id="td-type">—</span>
+      </div>
+    </div>
+    <p class="expiry" id="td-expiry"></p>
+    <br>
+    <button class="btn btn-approve" onclick="decide('approve')">✅ Approve Trade</button>
+    <button class="btn btn-cancel"  onclick="decide('cancel')">❌ Cancel Trade</button>
+    <div id="trade-message"></div>
+  </div>
+
+  <!-- ── Result ─────────────────────────────────────────────────────────── -->
+  <div id="result-section">
+    <h1>FinAgent</h1>
+    <div id="result-message" class="message"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Config — injected at deploy time by sam deploy or set manually ──────────
+// These values come from CloudFormation Outputs: UserPoolId and UserPoolClientId.
+// After `sam deploy`, update these two constants and re-upload index.html to S3.
+// ── Config: replace with your own values after `sam deploy` ──────────────
+const COGNITO_USER_POOL_ID  = "us-west-2_svS2BZj5s"; // CloudFormation Output: UserPoolId
+const COGNITO_CLIENT_ID     = "1smocv4q43cerou23dv9umq06e";
+const API_BASE              = "https://n8zmj4xf02.execute-api.us-west-2.amazonaws.com/dev";
+
+// ── Parse approval_id from URL ?approval_id=xxx ────────────────────────────
+const params     = new URLSearchParams(window.location.search);
+const approvalId = params.get("approval_id");
+
+if (!approvalId) {
+  document.getElementById("login-section").innerHTML =
+    '<div class="message error">⚠️ No approval ID in URL. Open the link from your email.</div>';
+}
+
+// ── Cognito setup ───────────────────────────────────────────────────────────
+const poolData = {
+  UserPoolId: COGNITO_USER_POOL_ID,
+  ClientId:   COGNITO_CLIENT_ID,
+};
+const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+let currentSession = null;
+
+function signIn() {
+  const email    = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const msgEl    = document.getElementById("login-message");
+
+  msgEl.innerHTML = '<div class="message info">Signing in…</div>';
+
+  const authData = {
+    Username: email,
+    Password: password,
+  };
+  const authDetails = new AmazonCognitoIdentity.AuthenticationDetails(authData);
+  const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+    Username: email,
+    Pool:     userPool,
+  });
+
+  cognitoUser.authenticateUser(authDetails, {
+    onSuccess(result) {
+      currentSession = result;
+      msgEl.innerHTML = "";
+      loadTradeDetails(result.getIdToken().getJwtToken());
+    },
+    onFailure(err) {
+      msgEl.innerHTML = `<div class="message error">❌ ${err.message || "Login failed"}</div>`;
+    },
+  });
+}
+
+// ── Load approval record from API ───────────────────────────────────────────
+async function loadTradeDetails(jwt) {
+  document.getElementById("login-section").style.display = "none";
+  document.getElementById("trade-section").style.display = "block";
+  document.getElementById("trade-message").innerHTML =
+    '<div class="spinner">Loading trade details…</div>';
+
+  try {
+    const res  = await fetch(`${API_BASE}/approval/${approvalId}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) throw new Error(data.error || "Failed to load trade");
+
+    const d = data.trade_detail || {};
+    const side = (d.side || "").toUpperCase();
+    document.getElementById("td-side").innerHTML =
+      `<span class="badge ${side === 'BUY' ? 'badge-buy' : 'badge-sell'}">${side}</span>`;
+    document.getElementById("td-symbol").textContent = d.symbol    || "—";
+    document.getElementById("td-qty").textContent    = d.qty       || "—";
+    document.getElementById("td-value").textContent  = d.estimated_value ? `$${d.estimated_value}` : "—";
+    document.getElementById("td-type").textContent   = d.type      || "market";
+    document.getElementById("td-expiry").textContent =
+      data.expires_at ? `⏱ Expires: ${new Date(data.expires_at).toLocaleString()}` : "";
+
+    document.getElementById("trade-message").innerHTML = "";
+  } catch (err) {
+    document.getElementById("trade-message").innerHTML =
+      `<div class="message error">❌ ${err.message}</div>`;
+  }
+}
+
+// ── Send approve / cancel decision ──────────────────────────────────────────
+async function decide(action) {
+  const jwt    = currentSession.getIdToken().getJwtToken();
+  const msgEl  = document.getElementById("trade-message");
+  const path   = action === "approve" ? "approve" : "cancel";
+
+  msgEl.innerHTML = '<div class="message info">Submitting…</div>';
+
+  try {
+    const res  = await fetch(`${API_BASE}/${path}/${approvalId}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || "Request failed");
+
+    // Show result
+    document.getElementById("trade-section").style.display  = "none";
+    document.getElementById("result-section").style.display = "block";
+    const resultEl = document.getElementById("result-message");
+    if (action === "approve") {
+      resultEl.className = "message success";
+      resultEl.textContent = "✅ Trade approved. The agent will execute it now.";
+    } else {
+      resultEl.className = "message error";
+      resultEl.textContent = "❌ Trade cancelled. No position was changed.";
+    }
+  } catch (err) {
+    msgEl.innerHTML = `<div class="message error">❌ ${err.message}</div>`;
+  }
+}
+</script>
+</body>
+</html>

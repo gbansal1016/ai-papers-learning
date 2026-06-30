@@ -1,0 +1,1 @@
+{"errorMessage": "'sub'", "errorType": "KeyError", "requestId": "f9c02c30-5c48-47d9-a57e-928e45760b3d", "stackTrace": ["  File \"/var/task/agent_core.py\", line 516, in handler\n    user_id  = event[\"requestContext\"][\"authorizer\"][\"claims\"][\"sub\"]\n"]}
