@@ -1,0 +1,22 @@
+# RAG Learning Project - Requirements
+# Install with: pip install -r requirements.txt
+
+# Phase 1 - Word2Vec
+gensim>=4.3.0
+
+# Phase 2 - BERT Embeddings
+transformers>=4.35.0
+torch>=2.0.0
+
+# Phase 3 - Sentence Embeddings (SBERT)
+sentence-transformers>=2.3.0
+
+# Phase 4 - Mini RAG (uses SBERT from Phase 3 + HuggingFace for generation)
+faiss-cpu>=1.7.4
+
+# Shared utilities
+numpy>=1.24.0
+matplotlib>=3.7.0
+scikit-learn>=1.3.0
+jupyter>=1.0.0
+ipykernel>=6.25.0
