@@ -122,10 +122,8 @@ externalization-in-llm-agents/
 
 ## Recommended Reading Order
 
-1. **This README** — framework overview (5 min)
-2. **`notebooks/fundamentals.ipynb`** — concepts before code (30 min)
-3. **`notebooks/externalization_vs_parametric.md`** — why this matters (15 min)
-4. **`personal-finance-agent/design/AGENT_SPECIFICATION.md`** — full design (30 min)
-5. **`notebooks/memory_skill_concepts.ipynb`** — memory + skills in code (45 min)
-6. **`notebooks/harness_algorithms.ipynb`** — harness loop + approval gates (60 min)
-7. **`personal-finance-agent/agent/agent_core.py`** — production implementation (30 min)
+1. **This README** — framework overview
+2. **`notebooks/fundamentals.ipynb`** — concepts before code
+3. **`notebooks/externalization_vs_parametric.md`** — why this matters
+4. **`personal-finance-agent/design/AGENT_SPECIFICATION.md`** — full design
+5. **`personal-finance-agent/agent/agent_core.py`** — agent implementation
